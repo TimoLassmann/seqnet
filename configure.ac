@@ -4,7 +4,15 @@
 AC_PREREQ([2.69])
 AC_INIT([seqnet],  [m4_esyscmd_s([./version.sh])])
 
+
+
+
 AC_USE_SYSTEM_EXTENSIONS
+AM_INIT_AUTOMAKE
+AC_PROG_CC
+AC_PROG_INSTALL
+AC_PROG_RANLIB
+
 AC_CONFIG_SRCDIR([src/rwalign.c])
 AC_CONFIG_HEADERS([config.h])
 
