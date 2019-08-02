@@ -17,7 +17,6 @@ AM_LDFLAGS = @DEAD_STRIP@
 AM_LDFLAGS += -Wno-undef
 
 
-
 MYLIBDIRS = ../tldevel/libtldevel.a
 
 
@@ -38,41 +37,32 @@ AM_CPPFLAGS=${MYINCDIRS} ${HDF5_CPPFLAGS}
 
 #LOGO_SOURCES = motif_logo.c motif_logo.h
 
-bin_PROGRAMS = timescorealn kalign
+bin_PROGRAMS = seqnet
 
-
-kalign_SOURCES = run_kalign.c \
-global.h \
-msa.h \
-parameters.h \
-parameters.c \
-aln_data.h \
-aln_data.c \
+seqnet_SOURCES = \
+run_seqnet.c \
 alphabet.h \
 alphabet.c \
-alignment_parameters.h \
-alignment_parameters.c \
-pick_anchor.h \
-pick_anchor.c \
+bpm.h \
+bpm.c \
+parameters.h \
+parameters.c \
+rwalign.c \
+global.h \
+msa.h \
 bisectingKmeans.h \
 bisectingKmeans.c \
-sequence_distance.h \
-sequence_distance.c \
 euclidean_dist.h \
 euclidean_dist.c \
-alignment.h \
-alignment.c \
-weave_alignment.h \
-weave_alignment.c \
-rwalign.c \
-misc.h \
-misc.c \
-bpm.h \
-bpm.c
+pick_anchor.h \
+pick_anchor.c \
+sequence_distance.h \
+sequence_distance.c
 
 
-check_PROGRAMS = edist alphabet misc_test bpm_test rwaln
-TESTS = edist alphabet  misc_test bpm_test
+
+check_PROGRAMS =  bpm_test rwaln alphabet
+TESTS = bpm_test
 TESTS_ENVIRONMENT = $(VALGRIND)
 
 rwaln_SOURCES = \
@@ -82,18 +72,6 @@ alphabet.c \
 msa.h
 rwaln_CPPFLAGS = $(AM_CPPFLAGS) -DRWALIGN_TEST
 
-timescorealn_SOURCES = \
-time_and_score_aln.c \
-msa.h \
-parameters.h \
-parameters.c \
-alphabet.h \
-alphabet.c \
-align_io.h \
-rwalign.c \
-misc.h \
-misc.c
-
 bpm_test_SOURCES = \
 bpm.h \
 bpm.c \
@@ -101,21 +79,9 @@ alphabet.h \
 alphabet.c
 bpm_test_CPPFLAGS = $(AM_CPPFLAGS) -DBPM_UTEST
 
-misc_test_SOURCES = \
-misc.h \
-misc.c \
-alphabet.h \
-alphabet.c
-
-misc_test_CPPFLAGS = $(AM_CPPFLAGS) -DITEST_MISC
 
 alphabet_SOURCES = \
 alphabet.h \
 alphabet.c
 alphabet_CPPFLAGS = $(AM_CPPFLAGS) -DITEST
 
-edist_SOURCES = \
-euclidean_dist.h \
-euclidean_dist.c
-
-edist_CPPFLAGS = $(AM_CPPFLAGS) -DITEST

@@ -1,19 +1,53 @@
-#                                               -*- Autoconf -*-
-# Process this file with autoconf to produce a configure script.
 
-AC_PREREQ([2.69])
-AC_INIT([seqnet],  [m4_esyscmd_s([./version.sh])])
+AC_INIT([seqnet], [m4_esyscmd_s([./version.sh])])
 
-
-
+#AC_CONFIG_AUX_DIR([.])
 
 AC_USE_SYSTEM_EXTENSIONS
-
-
 AM_INIT_AUTOMAKE
 AC_PROG_CC
 AC_PROG_INSTALL
 AC_PROG_RANLIB
+AM_SILENT_RULES([no])
+
+
+
+#AC_CONFIG_MACRO_DIR([m4])
+
+
+
+# M4 macros for checking of CPU features.
+m4_include([m4/ax_gcc_x86_avx_xgetbv.m4])
+m4_include([m4/ax_gcc_x86_cpuid.m4])
+m4_include([m4/ax_check_compile_flag.m4])
+m4_include([m4/ax_ext.m4])
+m4_include([m4/ax_openmp.m4])
+AX_EXT
+
+
+
+AC_ARG_ENABLE(openmp, [AC_HELP_STRING([--enable-openmp],[use OpenMP directives for parallelism])], enable_openmp=$enableval, enable_openmp=no)
+
+if test "$enable_openmp" = "yes"; then
+   AC_DEFINE(HAVE_OPENMP,1,[Define to enable OpenMP])
+   AX_OPENMP([], [AC_MSG_ERROR([don't know how to enable OpenMP])])
+fi
+AC_SUBST(SIMD_FLAGS)
+
+
+AC_ARG_WITH([openmp],
+    AS_HELP_STRING([--without-openmp], [Do not use OpenMP]))
+AS_IF([test "x$with_openmp" = "xno"], 
+            [], 
+            [AX_OPENMP(
+                AC_DEFINE([HAVE_OPENMP],[1],[Defined if OpenMP should and can be used])
+             )]
+     )
+AC_SUBST(OPENMP_CFLAGS)
+# according to http://beagle-lib.googlecode.com/svn-history/r824/trunk/configure.ac:
+# "OpenMP checker only defines for C when compiling both C and C++"
+OPENMP_CXXFLAGS=$OPENMP_CFLAGS
+AC_SUBST(OPENMP_CXXFLAGS)
 
 # test for working C11 _Generic support
 AN_IDENTIFIER([_Generic], [AC_C__GENERIC])
@@ -51,36 +85,33 @@ fi
 
 # Checks for programs.
 AC_PROG_AWK
+AC_PROG_CC
+# Check for C11 _Generic support 
 AC_C__GENERIC
+AC_PROG_INSTALL
 
 
-
-# M4 macros for checking of CPU features.
-m4_include([m4/ax_gcc_x86_avx_xgetbv.m4])
-m4_include([m4/ax_gcc_x86_cpuid.m4])
-m4_include([m4/ax_check_compile_flag.m4])
-m4_include([m4/ax_ext.m4])
-m4_include([m4/ax_openmp.m4])
-AX_EXT
-
-
-AC_CONFIG_SRCDIR([src/rwalign.c])
-AC_CONFIG_HEADERS([config.h])
-
-
-# Checks for libraries.
-# FIXME: Replace `main' with a function in `-lm':
-AC_CHECK_LIB([m], [main])
-# FIXME: Replace `main' with a function in `-lpthread':
+AC_CHECK_LIB([m], [sqrt])
 AC_CHECK_LIB([pthread], [main])
 
+
 # Checks for header files.
+AC_CHECK_HEADERS([math.h float.h stdlib.h unistd.h])
+AC_CHECK_HEADERS([sys/time.h])
+AC_CHECK_HEADERS([limits.h])
 
-# Checks for typedefs, structures, and compiler characteristics.
+
+AC_C_INLINE
+AC_TYPE_INT32_T
+AC_TYPE_INT64_T
 AC_TYPE_INT8_T
+AC_TYPE_SIZE_T
+AC_TYPE_UINT16_T
+AC_TYPE_UINT32_T
+AC_TYPE_UINT64_T
 AC_TYPE_UINT8_T
-
 # Checks for library functions.
+AC_FUNC_MALLOC
 AC_FUNC_STRNLEN
 
 AC_CHECK_FUNCS([gettimeofday pow realpath sqrt strstr])
@@ -164,8 +195,6 @@ ac_configure_args="$ac_configure_args PACKAGE_VERSION=$PACKAGE_VERSION   PACKAGE
 AC_CONFIG_FILES([Makefile
 src/Makefile])
 
-AC_CONFIG_HEADER([src/config.h])
-
 AC_CONFIG_SUBDIRS([tldevel])
 
 AC_OUTPUT
@@ -182,4 +211,16 @@ AC_MSG_NOTICE([     Uname information: $UNAME_INFO])
 AC_MSG_NOTICE([    Installation point: $prefix])
 AC_MSG_NOTICE([            SIMD flags: $SIMD_FLAGS])
 AC_MSG_NOTICE([---------------------------------------------------------])
+
+
+
+
+
+
+
+
+
+
+
+
 
