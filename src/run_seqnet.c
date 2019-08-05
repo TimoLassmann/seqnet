@@ -27,6 +27,8 @@
 #include <getopt.h>
 #include "alphabet.h"
 
+#include "matrix_io.h"
+
 #define OPT_T_UNIQUE 1
 #define OPT_T_TOTAL 2
 
@@ -366,7 +368,7 @@ int run_seqnet(struct parameters* param)
                 if(num_seq_in_clu >= param->t_unique && total_count >= param->t_total){
                         fprintf(stdout,"CLUSTER%d: %d unique %f of total\n",num_clu, num_seq_in_clu, (double) counts_in_clu / (double) total_count * 100.0);
 
-                        snprintf(buffer, max_name_len,"%s_cluster%d.fa",param->outfile, num_clu);
+                        snprintf(buffer, max_name_len,"%s_cluster%d_t%d_u%d.fa",param->outfile, num_clu,counts_in_clu, num_seq_in_clu);
                         f_ptr = fopen(buffer,"w");
                         for(i = 0; i < num_seq_in_clu;i++){
                                 j = seq_in_clu[i];

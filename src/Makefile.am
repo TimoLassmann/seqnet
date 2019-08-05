@@ -57,7 +57,9 @@ euclidean_dist.c \
 pick_anchor.h \
 pick_anchor.c \
 sequence_distance.h \
-sequence_distance.c
+sequence_distance.c \
+matrix_io.h \
+matrix_io.c
 
 
 
