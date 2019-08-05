@@ -37,6 +37,8 @@ struct parameters*init_param(void)
         param->input = NULL;
         param->outfile = NULL;
         param->help_flag = 0;
+        param->t_total = 0.0f;
+        param->t_unique = 0.0f;
         return param;
 ERROR:
         free_parameters(param);

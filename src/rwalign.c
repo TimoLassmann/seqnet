@@ -24,6 +24,12 @@
 #include "msa.h"
 #include "alphabet.h"
 
+#ifdef BUFFER_LEN
+
+#undef BUFFER_LEN
+#endif
+
+#define BUFFER_LEN 65536
 
 /* only local; */
 struct line_buffer{
@@ -1148,8 +1154,17 @@ struct msa* read_fasta(char* infile,struct msa* msa)
                                 }
 
                         }
+
                         seq_ptr = msa->sequences[msa->numseq];
-                        snprintf(seq_ptr->name ,MSA_NAME_LEN ,"%s",line+1);
+
+                        if(line_len >= seq_ptr->name_len){
+                                while(line_len >= seq_ptr->name_len){
+                                        seq_ptr->name_len = seq_ptr->name_len << 1;
+                                }
+                                MREALLOC(seq_ptr->name, sizeof(char) * seq_ptr->name_len);
+                        }
+
+                        snprintf(seq_ptr->name , seq_ptr->name_len  ,"%s",line+1);
                         msa->numseq++;
 
                 }else{
@@ -1302,8 +1317,10 @@ struct msa_seq* alloc_msa_seq(void)
         seq->gaps = NULL;
         seq->len = 0;
         seq->alloc_len = 512;
-
-        MMALLOC(seq->name, sizeof(char)* MSA_NAME_LEN);
+        seq->count = 0;
+        seq->name_len = MSA_NAME_LEN;
+        seq->cluster = 0;
+        MMALLOC(seq->name, sizeof(char)* seq->name_len);
 
         MMALLOC(seq->seq, sizeof(char) * seq->alloc_len);
         MMALLOC(seq->s, sizeof(uint8_t) * seq->alloc_len);

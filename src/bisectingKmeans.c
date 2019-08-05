@@ -24,7 +24,7 @@
 
 #include <float.h>
 #include "msa.h"
-
+#include "bpm.h"
 #include "bisectingKmeans.h"
 
 #include "euclidean_dist.h"
@@ -33,9 +33,10 @@
 #include "pick_anchor.h"
 
 struct node{
-
         struct node* left;
         struct node* right;
+        int* samples;
+        int num_samples;
         int id;
 };
 
@@ -54,8 +55,10 @@ static void free_kmeans_results(struct kmeans_result* k);
 struct node* upgma(float **dm,int* samples, int numseq);
 struct node* alloc_node(void);
 
+int merge_clusters(struct node*n, struct msa* msa, int threshold);
+int test_for_merge(struct node* n, struct msa* msa, int threshold);
+
 int label_internal(struct node*n, int label);
-int* readbitree(struct node* p,int* tree);
 void printTree(struct node* curr,int depth);
 struct node* bisecting_kmeans(struct msa* msa, struct node* n, float** dm,int* samples,int numseq, int num_anchors,int num_samples,struct rng_state* rng);
 
@@ -119,6 +122,21 @@ int build_tree_kmeans(struct msa* msa)
         STOP_TIMER(timer);
 
         LOG_MSG("Done in %f sec.", GET_TIMING(timer));
+
+        LOG_MSG("First Merge.");
+        START_TIMER(timer);
+        //merge_clusters(root, msa, 4);
+        STOP_TIMER(timer);
+
+        LOG_MSG("Done in %f sec.", GET_TIMING(timer));
+
+        LOG_MSG("Second Merge.");
+        START_TIMER(timer);
+        //merge_clusters(root, msa, 4);
+        STOP_TIMER(timer);
+
+        LOG_MSG("Done in %f sec.", GET_TIMING(timer));
+
         exit(0);
         MFREE(root);
         for(i =0 ; i < msa->numseq;i++){
@@ -131,11 +149,101 @@ ERROR:
         return FAIL;
 }
 
+int merge_clusters(struct node*n, struct msa* msa, int threshold)
+{
+        RUN(test_for_merge(n,msa,threshold));
+
+        if(n->left){
+                return merge_clusters(n->left,msa,threshold);
+        }
+        RUN(test_for_merge(n,msa,threshold));
+
+        if(n->right){
+                return merge_clusters(n->right,msa,threshold);
+        }
+        RUN(test_for_merge(n,msa,threshold));
+        return OK;
+ERROR:
+        return FAIL;
+}
+
+int test_for_merge(struct node* n, struct msa* msa, int threshold)
+{
+        int* samples_a;
+        int* samples_b;
+        uint8_t* a;
+        uint8_t* b;
+        int len_a,len_b;
+
+        int num_a,num_b;
+        uint8_t d;
+        int i,j;
+
+
+        if(n->left && n->right){
+                if(n->left->num_samples && n->right->num_samples){
+                        samples_a = n->left->samples;
+                        num_a = n->left->num_samples;
+                        samples_b = n->right->samples;
+                        num_b = n->right->num_samples;
+                        LOG_MSG("Merging: %d and %d", num_a,num_b);
+                        for(i = 0; i < num_a;i++){
+                                a = msa->sequences[samples_a[i]]->s;
+                                len_a = msa->sequences[samples_a[i]]->len;
+                                for(j = 0;j < num_b;j++){
+                                        b = msa->sequences[samples_b[j]]->s;
+                                        len_b = msa->sequences[samples_b[j]]->len;
+                                        d = MACRO_MAX(
+                                                bpm_256(a,b,len_a,len_b),
+                                                bpm_256(b,a,len_b,len_a)
+                                                );
+                                        if(d <= threshold){
+                                                LOG_MSG("We are merging because of:");
+                                                LOG_MSG("%s",msa->sequences[samples_a[i]]->seq);
+                                                LOG_MSG("%s",msa->sequences[samples_b[j]]->seq);
+                                                LOG_MSG("%d\tedits",d);
+
+
+                                                n->num_samples = num_a+num_b;
+                                                MMALLOC(n->samples, sizeof(int) * n->num_samples);
+                                                for(i = 0; i < num_a;i++){
+                                                        n->samples[i] = samples_a[i];
+                                                }
+                                                for(j = 0;j < num_b;j++){
+                                                        n->samples[j+num_a] = samples_b[j];
+                                                }
+
+                                                MFREE(n->left->samples);
+                                                MFREE(n->right->samples);
+                                                MFREE(n->left);
+                                                MFREE(n->right);
+                                                n->left = NULL;
+                                                n->right = NULL;
+                                                i = num_a + 1;
+                                                j = num_b + 1;
+                                                break;
+                                        }
+                                }
+                        }
+
+                }
+        }
+
+        return OK;
+ERROR:
+        return FAIL;
+}
+
+
+
+
 struct node* bisecting_kmeans(struct msa* msa, struct node* n, float** dm,int* samples,int numseq, int num_anchors,int num_samples,struct rng_state* rng)
 {
         struct kmeans_result* res_tmp = NULL;
         struct kmeans_result* best = NULL;
         struct kmeans_result* res_ptr = NULL;
+
+        struct node* tmp = NULL;
 
         int tries = 50;
         int t_iter;
@@ -147,6 +255,7 @@ struct node* bisecting_kmeans(struct msa* msa, struct node* n, float** dm,int* s
         float* wl = NULL;
         float* wr = NULL;
         float* cl = NULL;
+
         float* cr = NULL;
         float dl = 0.0f;
         float dr = 0.0f;
@@ -156,18 +265,11 @@ struct node* bisecting_kmeans(struct msa* msa, struct node* n, float** dm,int* s
 
         int stop = 0;
 
-        if(num_samples < 10000){
-                float** dm = NULL;
-                for(i =0; i< num_samples;i++){
-                        fprintf(stdout,"%s\n", msa->sequences[samples[i]]->seq);
-                }
-                //RUNP(dm = d_estimation(msa, samples, num_samples,1));// anchors, num_anchors,1));
-                //n = upgma(dm,samples, num_samples);
-
-                //gfree(dm);
-                MFREE(samples);
-                exit(0);
-                return n;
+        if(num_samples < 1000){
+                tmp = alloc_node();
+                tmp->samples = samples;
+                tmp->num_samples = num_samples;
+                return tmp;
         }
 
         num_var = num_anchors / 8;
@@ -238,16 +340,11 @@ struct node* bisecting_kmeans(struct msa* msa, struct node* n, float** dm,int* s
                 }
 
                 if(!s){
-                        score = 0;
-                        num_l = 0;
-                        num_r = 0;
-                        sl[num_l] = samples[0];
-                        num_l++;
 
-                        for(i =1 ; i <num_samples;i++){
-                                sr[num_r] = samples[i];
-                                num_r++;
-                        }
+                        tmp = alloc_node();
+                        tmp->samples = samples;
+                        tmp->num_samples = num_samples;
+                        return tmp;
                 }else{
                         w = NULL;
                         while(1){
@@ -348,9 +445,11 @@ struct node* bisecting_kmeans(struct msa* msa, struct node* n, float** dm,int* s
         _mm_free(wl);
         _mm_free(cr);
         _mm_free(cl);
-        MFREE(samples);
+
         n = alloc_node();
-        LOG_MSG("%d left\n%d right\n", num_l,num_r);
+        n->samples = samples;
+        n->num_samples = num_samples;
+        //LOG_MSG("%d left\n%d right\n", num_l,num_r);
         RUNP(n->left = bisecting_kmeans(msa,n->left, dm, sl, numseq, num_anchors, num_l,rng));
 
         RUNP(n->right = bisecting_kmeans(msa,n->right, dm, sr, numseq, num_anchors, num_r,rng));
@@ -443,49 +542,12 @@ struct node* alloc_node(void)
         MMALLOC(n, sizeof(struct node));
         n->left = NULL;
         n->right = NULL;
+        n->samples = NULL;
+        n->num_samples = 0;
         n->id = -1;
         return n;
 ERROR:
         return NULL;
-}
-
-int label_internal(struct node*n, int label)
-{
-        if(n->left){
-                label = label_internal(n->left, label);
-        }
-        if(n->right){
-                label = label_internal(n->right, label);
-        }
-
-        if(n->id == -1){
-                n->id = label;
-                label++;
-        }
-        return label;
-
-}
-
-int* readbitree(struct node* p,int* tree)
-{
-        if(p->left){
-                tree = readbitree(p->left,tree);
-        }
-        if(p->right){
-                tree = readbitree(p->right,tree);
-        }
-
-        if(p->left){
-                if(p->right){
-                        tree[tree[0]] = p->left->id;
-                        tree[tree[0]+1] = p->right->id;
-                        tree[tree[0]+2] = p->id;
-                        tree[0] +=3;
-                        MFREE(p->left);
-                        MFREE(p->right);
-                }
-        }
-        return tree;
 }
 
 

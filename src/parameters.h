@@ -32,6 +32,9 @@ struct parameters{
         char **infile;
         char *input;
         char *outfile;
+        int threshold;
+        double t_unique;
+        double t_total;
         int out_format;
         int num_infiles;
         int help_flag;

@@ -27,6 +27,9 @@
 #include <getopt.h>
 #include "alphabet.h"
 
+#define OPT_T_UNIQUE 1
+#define OPT_T_TOTAL 2
+
 #define OPT_SHOWW 5
 
 int run_seqnet(struct parameters* param);
@@ -37,15 +40,21 @@ int print_seqnet_warranty(void);
 int print_AVX_warning(void);
 static int calc_diff(struct msa* msa, uint8_t* seq_a,int len_a,  int i);
 
+static int compare_seq_based_on_count(const void *a, const void *b);
+
 int print_seqnet_help(int argc, char * argv[])
 {
-        const char usage[] = " -i <seq file> -o <out aln> ";
+        const char usage[] = " -i <seq file> -o <out prefix> ";
         fprintf(stdout,"\nUsage: %s %s\n\n",basename(argv[0]) ,usage);
         fprintf(stdout,"Options:\n\n");
 
-        fprintf(stdout,"%*s%-*s: %s %s\n",3,"",MESSAGE_MARGIN-3,"--format","Output format." ,"[Fasta]"  );
-        fprintf(stdout,"%*s%-*s: %s %s\n",3,"",MESSAGE_MARGIN-3,"--reformat","Reformat existing alignment." ,"[NA]"  );
+        fprintf(stdout,"%*s%-*s: %s %s\n",3,"",MESSAGE_MARGIN-3,"--threshold","Number of edits." ,"[1]"  );
+
+        fprintf(stdout,"%*s%-*s: %s %s\n",3,"",MESSAGE_MARGIN-3,"--mintotal","Minimum number of sequences to form a cluster." ,"[0]"  );
+        fprintf(stdout,"%*s%-*s: %s %s\n",3,"",MESSAGE_MARGIN-3,"--minuniq","Minimum number of unique sequences to make up a cluster." ,"[NA]"  );
+
         fprintf(stdout,"\n");
+
         return OK;
 }
 
@@ -72,10 +81,10 @@ int print_seqnet_header(void)
         fprintf(stdout,"\n");
         fprintf(stdout,"Seqnet (%s)\n", PACKAGE_VERSION);
         fprintf(stdout,"\n");
-        fprintf(stdout,"Copyright (C) 2006,2019 Timo Lassmann\n");
+        fprintf(stdout,"Copyright (C) 2019 Timo Lassmann\n");
         fprintf(stdout,"\n");
         fprintf(stdout,"This program comes with ABSOLUTELY NO WARRANTY; for details type:\n");
-        fprintf(stdout,"`kalign -showw'.\n");
+        fprintf(stdout,"`seqnet -showw'.\n");
         fprintf(stdout,"This is free software, and you are welcome to redistribute it\n");
         fprintf(stdout,"under certain conditions; consult the COPYING file for details.\n");
         fprintf(stdout,"\n");
@@ -102,13 +111,16 @@ int main(int argc, char *argv[])
         struct parameters* param = NULL;
 
         RUNP(param = init_param());
-
+        param->threshold = 1;
         while (1){
                 static struct option long_options[] ={
                         {"showw", 0,0,OPT_SHOWW },
                         {"input",  required_argument, 0, 'i'},
                         {"infile",  required_argument, 0, 'i'},
                         {"in",  required_argument, 0, 'i'},
+                        {"threshold",  required_argument, 0, 't'},
+                        {"mintotal",  required_argument, 0, OPT_T_TOTAL},
+                        {"minuniq",  required_argument, 0, OPT_T_UNIQUE},
                         {"output",  required_argument, 0, 'o'},
                         {"outfile",  required_argument, 0, 'o'},
                         {"out",  required_argument, 0, 'o'},
@@ -119,7 +131,7 @@ int main(int argc, char *argv[])
 
                 int option_index = 0;
 
-                c = getopt_long_only (argc, argv,"i:o:hq",long_options, &option_index);
+                c = getopt_long_only (argc, argv,"i:o:t:hq",long_options, &option_index);
 
                 /* Detect the end of the options. */
                 if (c == -1){
@@ -129,6 +141,13 @@ int main(int argc, char *argv[])
                 case OPT_SHOWW:
                         showw = 1;
                         break;
+                case OPT_T_TOTAL:
+                        param->t_total = atof(optarg);
+                        break;
+                case OPT_T_UNIQUE :
+                        param->t_unique = atof(optarg);
+                        break;
+
                 case 'h':
                         param->help_flag = 1;
                         break;
@@ -137,6 +156,9 @@ int main(int argc, char *argv[])
                         MMALLOC(param->infile, sizeof(char*));
                         param->infile[0] = optarg;
 
+                        break;
+                case 't':
+                        param->threshold = atoi(optarg);
                         break;
                 case 'o':
                         param->outfile = optarg;
@@ -180,6 +202,7 @@ int main(int argc, char *argv[])
 
 
         if (param->num_infiles == 0){
+                RUN(print_seqnet_help(argc, argv));
                 LOG_MSG("No infiles");
                 return EXIT_SUCCESS;
         }
@@ -207,15 +230,23 @@ ERROR:
 int run_seqnet(struct parameters* param)
 {
         struct msa* msa = NULL;
+        FILE* f_ptr = NULL;
 
         int i,j;
 
-        int k_dist[101];
+
         uint8_t d;
         uint8_t* seq_a;
         uint8_t* seq_b;
         int len_a,len_b;
         int num_threads = 8;
+        char* tmp = NULL;
+        char* buffer = NULL;
+        char* t1;
+        char* t2;
+        int total_count;
+        int count;
+        int max_name_len;
         DECLARE_TIMER(t1);
         /* Step 1: read all input sequences & figure out output  */
         START_TIMER(t1);
@@ -224,44 +255,156 @@ int run_seqnet(struct parameters* param)
         }
         STOP_TIMER(t1);
         LOG_MSG("Detected: %d sequences in %f sec.", msa->numseq,GET_TIMING(t1));
-
-        RUN(build_tree_kmeans(msa));
-
-        for(i = 0; i < 101;i++){
-
-                k_dist[i] = 0;
-        }
-
-
-#ifdef HAVE_OPENMP
-#pragma omp parallel shared(num_threads,msa) private(i)
-
-        {
-#pragma omp for schedule(dynamic) nowait
-#endif
+        max_name_len = 0;
         for(i = 0; i < msa->numseq;i++){
-                //START_TIMER(t1);
+                if(max_name_len < msa->sequences[i]->name_len){
+                        max_name_len = msa->sequences[i]->name_len;
+                }
+        }
+        LOG_MSG("Longest name: %d",max_name_len);
+        MMALLOC(buffer, sizeof(char) * (max_name_len));
 
-                seq_a = msa->sequences[i]->s;
-                len_a = msa->sequences[i]->len;
-                calc_diff(msa, seq_a, len_a, i);
-                //STOP_TIMER(t1);
-                LOG_MSG("%d in %f sec.", i,1.0);//GET_TIMING(t1));
-
+        total_count = 0;
+        //tmp = mal
+        /* Get sequence counts; from my sample : ; delimited naming scheme   */
+        for(i = 0; i < msa->numseq;i++){
+                strncpy(buffer, msa->sequences[i]->name, max_name_len);
+                tmp= buffer;
+                //tmp = msa->sequences[i]->name;
+                count = 0;
+                t1  = strchr(tmp, ';');
+                while (t1 != NULL){
+                        /* String to scan is in string..token */
+                        *t1++ = '\0';
+                        //printf("a = %s\n", tmp);
+                        t2 = strtok(tmp, ":");
+                        j = 0;
+                        while (t2 != NULL){
+                                if(j & 1){
+                                        count += atoi(t2);
+                                }
+                                t2 = strtok(NULL, ":");
+                                j++;
+                        }
+                        tmp = t1;
+                        t1 = strchr(tmp, ';');
+                }
+                t2 = strtok(tmp, ":");
+                j = 0;
+                while (t2 != NULL){
+                        if(j & 1){
+                                count += atoi(t2);
+                        }
+                        t2 = strtok(NULL, ":");
+                        j++;
+                }
+                msa->sequences[i]->count = count;
+                total_count += count;
         }
 
-        //thr_pool_wait(pool);
-#ifdef HAVE_OPENMP
-        }
+
+        qsort(msa->sequences, msa->numseq, sizeof(struct msa_seq* ),compare_seq_based_on_count);
+
+
+        //>640_RS:1;mTCR_215-RS-1:1;mTCR_412-RS-5:1
+        /* Kind of essential */
+#ifdef HAVE_AVX2
+        set_broadcast_mask();
 #endif
 
 
+        int num_clu = 1;
+        int* seq_in_clu = NULL;
+        int num_seq_in_clu = 0;
+        int left = msa->numseq;
+        int counts_in_clu;
 
+
+        MMALLOC(seq_in_clu, sizeof(int) * msa->numseq);
+
+        while(1){
+                /* select seed  */
+                j = -1;
+                for(i = 0; i < msa->numseq;i++){
+                        if(msa->sequences[i]->cluster == 0){
+                                j = i;
+                                break;
+                        }
+                }
+                if(j == -1){
+                        LOG_MSG("Quitting");
+                        break;
+                }
+                seq_a = msa->sequences[j]->s;
+                len_a = msa->sequences[j]->len;
+
+                num_seq_in_clu =0;
+                counts_in_clu = 0;
+                for(i = j; i < msa->numseq;i++){
+                        //START_TIMER(t1);
+                        if(msa->sequences[i]->cluster == 0 ){
+                                seq_b = msa->sequences[i]->s;
+                                len_b = msa->sequences[i]->len;
+
+                                d = MACRO_MAX(
+                                        bpm_256(seq_a,seq_b,len_a,len_b),
+                                        bpm_256(seq_b,seq_a,len_b,len_a)
+                                        );
+
+                                if(d <= param->threshold){
+                                        seq_in_clu[num_seq_in_clu] = i;
+                                        num_seq_in_clu++;
+                                        counts_in_clu += msa->sequences[i]->count;
+                                }
+
+                                //calc_diff(msa, seq_a, len_a, i);
+                                //STOP_TIMER(t1);
+                        }
+
+                }
+                /* shall I print out the sequences?  */
+                if(num_seq_in_clu >= param->t_unique && total_count >= param->t_total){
+                        fprintf(stdout,"CLUSTER%d: %d unique %f of total\n",num_clu, num_seq_in_clu, (double) counts_in_clu / (double) total_count * 100.0);
+
+                        snprintf(buffer, max_name_len,"%s_cluster%d.fa",param->outfile, num_clu);
+                        f_ptr = fopen(buffer,"w");
+                        for(i = 0; i < num_seq_in_clu;i++){
+                                j = seq_in_clu[i];
+                                fprintf(f_ptr,">%s\n%s\n", msa->sequences[j]->name,msa->sequences[j]->seq);
+                                //                left--;
+                                //j = seq_in_clu[i];
+                                //msa->sequences[j]->cluster = num_clu;
+                                //fprintf(stdout,"%d\t%s\n",msa->sequences[j]->count,msa->sequences[j]->seq);
+                                //msa->sequences[j]->count = 0;
+                        }
+                        //fprintf(stdout,"%d remaining\n",left);
+
+                        fclose(f_ptr);
+                        num_clu++;
+                }
+                for(i = 0; i < num_seq_in_clu;i++){
+                        left--;
+                        j = seq_in_clu[i];
+                        msa->sequences[j]->cluster = num_clu;
+                        //fprintf(stdout,"%d\t%s\n",msa->sequences[j]->count,msa->sequences[j]->seq);
+                        //msa->sequences[j]->count = 0;
+                }
+
+                //if(num_clu == 10){
+                //break;
+                //}
+        }
+
+        MFREE(seq_in_clu);
+        MFREE(buffer);
+
+        free_msa(msa);
         /* If we just want to reformat end here */
         return OK;
 ERROR:
         return FAIL;
 }
+
 
 
 int calc_diff(struct msa* msa, uint8_t* seq_a,int len_a,  int i)
@@ -274,8 +417,27 @@ int calc_diff(struct msa* msa, uint8_t* seq_a,int len_a,  int i)
         for(j = 0;j < msa->numseq;j++){
                 seq_b = msa->sequences[j]->s;
                 len_b = msa->sequences[j]->len;
-                d = bpm_256(seq_a,seq_b,len_a,len_b);
+                d =    bpm_256(seq_a,seq_b,len_a,len_b);
                 //lk_dist[d]++;
         }
         return OK;
+}
+
+
+
+int compare_seq_based_on_count(const void *a, const void *b)
+{
+        struct msa_seq* const *one = a;
+        struct msa_seq* const *two = b;
+
+        if((*one)->count  < (*two)->count){
+                return 1;
+        }
+        if((*one)->count  ==  (*two)->count){
+                return 0;
+        }
+        return -1;
+
+/* integer comparison: returns negative if b > a
+   and positive if a > b */
 }

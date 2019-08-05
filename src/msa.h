@@ -37,7 +37,10 @@ struct msa_seq{
         uint8_t* s;
         int* gaps;
         int len;
+        int name_len;
         int alloc_len;
+        int count;
+        int cluster;
 };
 
 struct msa{
