@@ -365,8 +365,8 @@ int run_seqnet(struct parameters* param)
 
                 }
                 /* shall I print out the sequences?  */
-                if(num_seq_in_clu >= param->t_unique && total_count >= param->t_total){
-                        fprintf(stdout,"CLUSTER%d: %d unique %f of total\n",num_clu, num_seq_in_clu, (double) counts_in_clu / (double) total_count * 100.0);
+                if(num_seq_in_clu >= param->t_unique && counts_in_clu >= param->t_total){
+                        fprintf(stdout,"CLUSTER%d: %d unique %d total number of sequences\n",num_clu, num_seq_in_clu, counts_in_clu);
 
                         snprintf(buffer, max_name_len,"%s_cluster%d_t%d_u%d.fa",param->outfile, num_clu,counts_in_clu, num_seq_in_clu);
                         f_ptr = fopen(buffer,"w");
